@@ -1,0 +1,210 @@
+cat > setup_instance5.sh << 'ENDOFFILE'
+#!/bin/bash
+echo "=== Creating Application Structure ==="
+mkdir -p ~/app/frontend/src ~/app/frontend/public ~/app/backend
+cd ~/app
+
+echo "=== Creating Backend Files ==="
+cat > backend/package.json << 'EOF'
+{
+  "name": "backend-api",
+  "version": "1.0.0",
+  "main": "server.js",
+  "scripts": {"start": "node server.js"},
+  "dependencies": {
+    "express": "^4.18.2",
+    "mongoose": "^7.0.0",
+    "cors": "^2.8.5"
+  }
+}
+EOF
+
+cat > backend/server.js << 'EOF'
+const express = require('express');
+const mongoose = require('mongoose');
+const cors = require('cors');
+const app = express();
+app.use(cors());
+app.use(express.json());
+mongoose.connect(process.env.MONGO_URI || 'mongodb://mongodb:27017/todoapp');
+const Todo = mongoose.model('Todo', {title: String, completed: {type: Boolean, default: false}});
+app.get('/health', (req, res) => res.json({status: 'OK'}));
+app.get('/api/todos', async (req, res) => res.json(await Todo.find()));
+app.post('/api/todos', async (req, res) => res.json(await Todo.create(req.body)));
+app.delete('/api/todos/:id', async (req, res) => res.json(await Todo.findByIdAndDelete(req.params.id)));
+app.listen(3002, () => console.log('Server running on port 3002'));
+EOF
+
+cat > backend/Dockerfile << 'EOF'
+FROM node:18-alpine
+WORKDIR /app
+COPY package*.json ./
+RUN npm install --production
+COPY . .
+EXPOSE 3002
+CMD ["npm", "start"]
+EOF
+
+echo "=== Creating Frontend Files ==="
+cat > frontend/package.json << 'EOF'
+{
+  "name": "frontend-app",
+  "version": "1.0.0",
+  "dependencies": {
+    "react": "^18.2.0",
+    "react-dom": "^18.2.0",
+    "react-scripts": "5.0.1",
+    "axios": "^1.4.0"
+  },
+  "scripts": {"start": "react-scripts start", "build": "react-scripts build"}
+}
+EOF
+
+cat > frontend/public/index.html << 'EOF'
+<!DOCTYPE html>
+<html lang="en">
+<head><meta charset="utf-8" /><title>Todo App</title></head>
+<body><div id="root"></div></body>
+</html>
+EOF
+
+cat > frontend/src/index.js << 'EOF'
+import React from 'react';
+import ReactDOM from 'react-dom/client';
+import App from './App';
+const root = ReactDOM.createRoot(document.getElementById('root'));
+root.render(<App />);
+EOF
+
+cat > frontend/src/App.js << 'EOF'
+import React, { useState, useEffect } from 'react';
+import axios from 'axios';
+const API = 'http://localhost:3002/api';
+function App() {
+  const [todos, setTodos] = useState([]);
+  const [input, setInput] = useState('');
+  useEffect(() => { axios.get(API + '/todos').then(r => setTodos(r.data)); }, []);
+  const add = () => { if (!input) return; axios.post(API + '/todos', {title: input}).then(r => { setTodos([r.data, ...todos]); setInput(''); }); };
+  const del = (id) => { axios.delete(API + '/todos/' + id).then(() => setTodos(todos.filter(t => t._id !== id))); };
+  return (
+    <div style={{padding:'20px', maxWidth:'600px', margin:'auto'}}>
+      <h1>📝 Todo App</h1>
+      <input value={input} onChange={e => setInput(e.target.value)} placeholder="Add task..." style={{padding:'10px', width:'70%'}} />
+      <button onClick={add} style={{padding:'10px 20px', marginLeft:'10px'}}>Add</button>
+      <ul style={{listStyle:'none', padding:0}}>
+        {todos.map(t => (
+          <li key={t._id} style={{padding:'15px', marginBottom:'10px', background:'#f5f5f5', display:'flex', justifyContent:'space-between'}}>
+            <span>{t.title}</span>
+            <button onClick={() => del(t._id)} style={{padding:'5px 15px', background:'#dc3545', color:'white', border:'none', cursor:'pointer'}}>Delete</button>
+          </li>
+        ))}
+      </ul>
+    </div>
+  );
+}
+export default App;
+EOF
+
+cat > frontend/Dockerfile << 'EOF'
+FROM node:18-alpine as build
+WORKDIR /app
+COPY package*.json ./
+RUN npm install
+COPY . .
+RUN npm run build
+FROM nginx:alpine
+COPY --from=build /app/build /usr/share/nginx/html
+EXPOSE 80
+CMD ["nginx", "-g", "daemon off;"]
+EOF
+
+echo "=== Creating docker-compose.yml ==="
+cat > docker-compose.yml << 'EOF'
+version: '3.8'
+services:
+  mongodb:
+    image: mongo:6
+    ports: ["27017:27017"]
+    networks: [app-network]
+  backend:
+    build: ./backend
+    ports: ["3002:3002"]
+    environment: [MONGO_URI=mongodb://mongodb:27017/todoapp]
+    depends_on: [mongodb]
+    networks: [app-network]
+  frontend:
+    build: ./frontend
+    ports: ["3001:80"]
+    networks: [app-network]
+networks:
+  app-network:
+EOF
+
+echo "=== YOU MUST EDIT JENKINSFILE WITH YOUR IPs! ==="
+cat > Jenkinsfile << 'EOF'
+pipeline {
+    agent any
+    environment {
+        REGISTRY = 'INSTANCE_4_IP:5000'
+        DEPLOY_HOST = 'INSTANCE_5_IP'
+        BACKEND_IMAGE = "${REGISTRY}/todo-backend"
+        FRONTEND_IMAGE = "${REGISTRY}/todo-frontend"
+    }
+    stages {
+        stage('Checkout') {
+            steps {
+                echo '=== Checking out code ==='
+                checkout scm
+            }
+        }
+        stage('Build Backend') {
+            steps {
+                dir('backend') {
+                    sh "docker build -t ${BACKEND_IMAGE}:latest ."
+                }
+            }
+        }
+        stage('Build Frontend') {
+            steps {
+                dir('frontend') {
+                    sh "docker build -t ${FRONTEND_IMAGE}:latest ."
+                }
+            }
+        }
+        stage('Push to Registry') {
+            steps {
+                sh "docker push ${BACKEND_IMAGE}:latest"
+                sh "docker push ${FRONTEND_IMAGE}:latest"
+            }
+        }
+        stage('Deploy') {
+            steps {
+                sh "docker-compose down || true"
+                sh "docker-compose up -d"
+            }
+        }
+        stage('Health Check') {
+            steps {
+                sleep 15
+                sh "curl -f http://localhost:3002/health"
+            }
+        }
+    }
+}
+EOF
+
+echo "=========================================="
+echo "✅ INSTANCE 5 COMPLETE!"
+echo "=========================================="
+echo "Application files created in ~/app"
+echo ""
+echo "⚠️  IMPORTANT: Edit Jenkinsfile with your IPs!"
+echo "Run: cd ~/app && vi Jenkinsfile"
+echo "Replace INSTANCE_4_IP and INSTANCE_5_IP"
+echo "=========================================="
+
+tree ~/app
+ENDOFFILE
+
+chmod +x setup_instance5.sh
+./setup_instance5.sh
