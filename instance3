@@ -1,0 +1,24 @@
+cat > setup_instance3.sh << 'ENDOFFILE'
+#!/bin/bash
+echo "=== Installing Nexus ==="
+docker run -d --name nexus -p 8081:8081 sonatype/nexus3
+echo "⏳ Waiting for Nexus to start (4 minutes)..."
+sleep 240
+
+echo "=== Getting Nexus Password ==="
+docker exec nexus cat /nexus-data/admin.password > nexus_password.txt
+echo "✅ Nexus password saved to nexus_password.txt"
+
+echo "=========================================="
+echo "✅ INSTANCE 3 COMPLETE!"
+echo "=========================================="
+echo "Nexus: Click port 8081"
+echo "Login: admin / (password below)"
+cat nexus_password.txt
+echo ""
+echo "Change password to: admin123"
+echo "=========================================="
+ENDOFFILE
+
+chmod +x setup_instance3.sh
+./setup_instance3.sh
