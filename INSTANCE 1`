@@ -1,0 +1,39 @@
+cat > setup_instance1.sh << 'ENDOFFILE'
+#!/bin/bash
+echo "=== Installing Gitea ==="
+docker run -d --name gitea -p 3000:3000 -p 222:22 gitea/gitea:latest
+sleep 30
+echo "✅ Gitea installed on port 3000"
+
+echo "=== Installing Jenkins ==="
+docker run -d --name jenkins -p 8080:8080 -p 50000:50000 \
+  -v jenkins_home:/var/jenkins_home \
+  -v /var/run/docker.sock:/var/run/docker.sock \
+  jenkins/jenkins:lts
+sleep 60
+echo "✅ Jenkins installed on port 8080"
+
+echo "=== Installing Docker in Jenkins ==="
+docker exec -u root jenkins bash -c "apt-get update && apt-get install -y docker.io"
+docker exec -u root jenkins usermod -aG docker jenkins
+docker restart jenkins
+sleep 30
+
+echo "=== Getting Jenkins Password ==="
+docker exec jenkins cat /var/jenkins_home/secrets/initialAdminPassword > jenkins_password.txt
+echo "✅ Jenkins password saved to jenkins_password.txt"
+cat jenkins_password.txt
+
+echo ""
+echo "=========================================="
+echo "✅ INSTANCE 1 COMPLETE!"
+echo "=========================================="
+echo "Gitea: Click port 3000"
+echo "Jenkins: Click port 8080"
+echo "Jenkins Password:"
+cat jenkins_password.txt
+echo "=========================================="
+ENDOFFILE
+
+chmod +x setup_instance1.sh
+./setup_instance1.sh
