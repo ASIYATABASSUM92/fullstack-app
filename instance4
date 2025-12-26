@@ -1,0 +1,30 @@
+cat > setup_instance4.sh << 'ENDOFFILE'
+#!/bin/bash
+echo "=== Installing Docker Registry ==="
+docker run -d --name registry -p 5000:5000 registry:2
+
+echo "=== Configuring Insecure Registry ==="
+cat > /etc/docker/daemon.json << EOF
+{
+  "insecure-registries": ["localhost:5000", "0.0.0.0/0"]
+}
+EOF
+
+service docker restart
+sleep 10
+
+echo "=== Testing Registry ==="
+docker pull hello-world
+docker tag hello-world localhost:5000/hello-world
+docker push localhost:5000/hello-world
+
+echo "=========================================="
+echo "✅ INSTANCE 4 COMPLETE!"
+echo "=========================================="
+echo "Docker Registry running on port 5000"
+echo "Test successful!"
+echo "=========================================="
+ENDOFFILE
+
+chmod +x setup_instance4.sh
+./setup_instance4.sh
