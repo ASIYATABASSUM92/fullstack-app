@@ -1,0 +1,21 @@
+cat > setup_instance2.sh << 'ENDOFFILE'
+#!/bin/bash
+echo "=== Configuring System for SonarQube ==="
+sysctl -w vm.max_map_count=262144
+
+echo "=== Installing SonarQube ==="
+docker run -d --name sonarqube -p 9000:9000 sonarqube:community
+echo "⏳ Waiting for SonarQube to start (3 minutes)..."
+sleep 180
+
+echo "=========================================="
+echo "✅ INSTANCE 2 COMPLETE!"
+echo "=========================================="
+echo "SonarQube: Click port 9000"
+echo "Login: admin / admin"
+echo "Change password to: admin123"
+echo "=========================================="
+ENDOFFILE
+
+chmod +x setup_instance2.sh
+./setup_instance2.sh
